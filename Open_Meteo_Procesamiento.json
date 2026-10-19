@@ -1,0 +1,149 @@
+{
+  "name": "Open_Meteo_Procesamiento",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Extraemos el texto plano de la cola y lo convertimos a JSON real\nconst textoMensaje = $input.first().json.content;\nlet datos = JSON.parse(textoMensaje);\nreturn  { json: datos } ;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        0
+      ],
+      "id": "58135d33-017e-45a7-844b-740137d32a8a",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "bucketName": "cleaned-data",
+        "fileName": "={{ $('Code in JavaScript1').item.json.year }}/{{ $('Code in JavaScript1').item.json.month }}/{{ $('Code in JavaScript1').item.json.day }}/{{ $('Code in JavaScript1').item.json.hour }}.json",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        912,
+        0
+      ],
+      "id": "c0bf3db2-f99f-47c3-a2e8-4c36486277fb",
+      "name": "Upload a file",
+      "credentials": {
+        "s3": {
+          "id": "Xs3HmMLylFKegrOX",
+          "name": "S3 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "toJson",
+        "options": {
+          "format": false,
+          "fileName": "={{ $json.hour }}"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        656,
+        0
+      ],
+      "id": "ed0f93f9-ba40-4c4a-ac37-c697a0bd6499",
+      "name": "Convert to File"
+    },
+    {
+      "parameters": {
+        "queue": "cola_open_meteo",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.rabbitmqTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "69284270-292a-4d9b-ac6a-a1402cc3a392",
+      "name": "RabbitMQ Trigger",
+      "credentials": {
+        "rabbitmq": {
+          "id": "UHxTfo7je0dbbcj3",
+          "name": "RabbitMQ account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nif (items.length === 0) return [];\n\n// Procesamos cada ítem y lo devolvemos como un elemento independiente de la lista\nlet resultado = items.map(item => {\n    let datosLimpios = item.json;\n    \n    // Extraemos la fecha y hora\n    let fecha = new Date(datosLimpios.fecha_hora); \n    datosLimpios.year = fecha.getFullYear().toString();\n    datosLimpios.month = String(fecha.getMonth() + 1).padStart(2, '0');\n    datosLimpios.day = String(fecha.getDate()).padStart(2, '0');\n    datosLimpios.hour = String(fecha.getHours()).padStart(2, '0');\n    \n    // Eliminamos los campos originales para que quede limpio\n    delete datosLimpios.fecha_hora;\n    delete datosLimpios.fecha;\n    \n    return {\n        json: datosLimpios\n    };\n});\n\n// Devolvemos la lista plana directamente\nreturn resultado;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        0
+      ],
+      "id": "ccf11d65-4ca6-4ca3-8c9c-a99cad40a033",
+      "name": "Code in JavaScript1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File": {
+      "main": [
+        [
+          {
+            "node": "Upload a file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RabbitMQ Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Convert to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "ce7ddf9a-4ecc-4850-a7f7-fef64ae2f0df",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "cadd8722fe09051288783ffaf2c36fdad107f5546418fb2c936630e3547d1a8a"
+  },
+  "id": "OesGiVtJdXBspz3v",
+  "tags": []
+}

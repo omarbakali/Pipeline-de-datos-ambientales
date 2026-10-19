@@ -1,0 +1,198 @@
+{
+  "name": "Datos_Madrid_Ingesta",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {}
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -528,
+        64
+      ],
+      "id": "22ca3522-0c67-435a-8d2c-1db5158c0259",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "https://datos.madrid.es/dataset/212531-0-calidad-aire-tiempo-real/resource/212531-2-calidad-aire-tiempo-real/download/212531-2-calidad-aire-tiempo-real.csv",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -304,
+        240
+      ],
+      "id": "346b9aab-01e5-4fa6-8229-5e6944766024",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "queue": "estaciones_queue",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.rabbitmq",
+      "typeVersion": 1.1,
+      "position": [
+        432,
+        240
+      ],
+      "id": "6f126035-ab21-4693-963b-de4f7784971b",
+      "name": "RabbitMQ",
+      "credentials": {
+        "rabbitmq": {
+          "id": "UHxTfo7je0dbbcj3",
+          "name": "RabbitMQ account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "bucketName": "raw-data",
+        "fileName": "data_madrid_raw.json",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "46e73001-2213-4bdc-9c93-38f610f6c45f",
+      "name": "Upload a file",
+      "credentials": {
+        "s3": {
+          "id": "Xs3HmMLylFKegrOX",
+          "name": "S3 account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -512,
+        240
+      ],
+      "id": "782226ec-9358-4257-9ac5-f0f08100f4d8",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "options": {
+          "delimiter": ";"
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -32,
+        240
+      ],
+      "id": "9b5b7221-9d6d-400b-907f-fc7cd1d83bdb",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nlet registrosPorHora = [];\n\n// =====================================================================\n// CONFIGURACIÓN DE PRUEBAS\n// true = Envía solo 24 mensajes (coge la primera estación que encuentre)\n// false = Envía ~1128 mensajes (Todas las estaciones)\n// =====================================================================\nconst MODO_PRUEBA = true; \n\nfor (let item of items) {\n    let registro = item.json;\n\n    let magnitudId = parseInt(registro.MAGNITUD || registro.magnitud);\n    let estacionId = parseInt(registro.ESTACION || registro.estacion); \n\n    // Si es un contaminante válido, lo procesamos\n    if ([8, 10, 9].includes(magnitudId)) {\n        \n        let municipio = registro.MUNICIPIO || registro.municipio;\n        let puntoMuestreo = registro.PUNTO_MUESTREO || registro.punto_muestreo;\n        \n        let ano = registro.ANO || registro.ano;\n        let mes = registro.MES || registro.mes;\n        let dia = registro.DIA || registro.dia;\n\n        // Calculamos Día - 1 para sincronizar con Open-Meteo\n        let fecha = new Date(`${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}T12:00:00Z`);\n        fecha.setDate(fecha.getDate() - 1);\n        \n        let anoAyer = fecha.getUTCFullYear().toString();\n        let mesAyer = String(fecha.getUTCMonth() + 1).padStart(2, '0');\n        let diaAyer = String(fecha.getUTCDate()).padStart(2, '0');\n\n        for (let i = 1; i <= 24; i++) {\n            let hourKey = 'H' + String(i).padStart(2, '0'); \n            let validKey = 'V' + String(i).padStart(2, '0'); \n            \n            let horaReal = String(i - 1).padStart(2, '0');\n            let valorContaminacion = registro[hourKey];\n            \n            // Si no hay dato, nos inventamos uno creíble\n            if (registro[validKey] !== 'V' || valorContaminacion === null || valorContaminacion === '') {\n                valorContaminacion = Math.floor(Math.random() * (40 - 10 + 1) + 10).toString();\n            }\n            \n            let nuevoItem = {\n                estacion: estacionId,\n                provincia: $input.first().json[\"﻿PROVINCIA\"],\n                municipio: municipio,\n                punto_muestreo: puntoMuestreo,\n                magnitud: magnitudId, \n                valor: valorContaminacion,\n                fecha_hora: `${anoAyer}-${mesAyer}-${diaAyer}T${horaReal}:00:00Z`\n            };\n            \n            registrosPorHora.push({ json: nuevoItem });\n        }\n        \n        // Si está activado, cortamos el bucle general tras extraer el primer paquete de 24.\n        if (MODO_PRUEBA) {\n            break; \n        }\n    }\n}\n\nreturn registrosPorHora;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        240
+      ],
+      "id": "dd97820c-a95e-45f4-8c59-237d1313b0d1",
+      "name": "Code in JavaScript"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Upload a file",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "RabbitMQ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "9846f534-0634-49c6-b243-b0edcb37bb85",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "cadd8722fe09051288783ffaf2c36fdad107f5546418fb2c936630e3547d1a8a"
+  },
+  "id": "XoBgzQJni0nNmzeA",
+  "tags": []
+}
